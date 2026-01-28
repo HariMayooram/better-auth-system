@@ -1,0 +1,321 @@
+# Cloud Monitoring Alerts Configuration for Auth System
+# Deploy these alerts to monitor security and performance
+
+# To deploy:
+# gcloud alpha monitoring policies create --policy-from-file=monitoring-alerts.yaml
+
+---
+# Alert 1: High Rate of Failed Authentication Attempts
+displayName: "Auth System - High Failed Login Rate"
+documentation:
+  content: |
+    ## High Failed Authentication Rate Detected
+
+    This alert fires when there are more than 50 failed authentication attempts within 5 minutes.
+    This could indicate:
+    - Brute force attack
+    - Misconfigured OAuth application
+    - User experience issues
+
+    **Actions:**
+    1. Check Cloud Run logs for failed auth patterns
+    2. Identify source IPs of failures
+    3. Consider temporary IP blocking if attack detected
+    4. Review OAuth configuration if consistent failures
+
+    **Query logs:**
+    ```bash
+    gcloud logging read "resource.type=cloud_run_revision AND \
+      resource.labels.service_name=webroot-auth-api AND \
+      severity>=ERROR" --limit=100
+    ```
+  mimeType: text/markdown
+conditions:
+  - displayName: "Failed auth attempts > 50 in 5 minutes"
+    conditionThreshold:
+      filter: |
+        resource.type="cloud_run_revision"
+        AND resource.labels.service_name="webroot-auth-api"
+        AND (
+          textPayload=~"authentication.*failed"
+          OR textPayload=~"Invalid credentials"
+          OR httpRequest.status>=400
+        )
+      comparison: COMPARISON_GT
+      thresholdValue: 50
+      duration: 300s
+      aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+
+---
+# Alert 2: Unusual Traffic Spike
+displayName: "Auth System - Unusual Traffic Spike"
+documentation:
+  content: |
+    ## Unusual Traffic Spike Detected
+
+    Request rate is significantly higher than normal. This could indicate:
+    - DDoS attack
+    - Viral growth (good problem!)
+    - Bot activity
+    - Misconfigured frontend making excessive requests
+
+    **Actions:**
+    1. Check if traffic is legitimate (new users vs bots)
+    2. Review request patterns in Cloud Run metrics
+    3. Consider enabling Cloud Armor if attack
+    4. Check for frontend bugs causing request loops
+
+    **View metrics:**
+    - Go to Cloud Run console → webroot-auth-api → Metrics
+    - Check "Request count" and "Request latency"
+  mimeType: text/markdown
+conditions:
+  - displayName: "Request rate > 1000/minute"
+    conditionThreshold:
+      filter: |
+        resource.type="cloud_run_revision"
+        AND resource.labels.service_name="webroot-auth-api"
+        AND metric.type="run.googleapis.com/request_count"
+      comparison: COMPARISON_GT
+      thresholdValue: 1000
+      duration: 60s
+      aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_RATE
+
+---
+# Alert 3: High Error Rate
+displayName: "Auth System - High Error Rate"
+documentation:
+  content: |
+    ## High Error Rate Detected
+
+    More than 10% of requests are failing. This indicates:
+    - Service degradation
+    - Database connection issues
+    - OAuth provider outage
+    - Code deployment bug
+
+    **Actions:**
+    1. Check service health: curl https://YOUR-SERVICE-URL/health
+    2. Review recent deployments for bugs
+    3. Check database connectivity
+    4. Verify OAuth provider status pages:
+       - Google: https://www.google.com/appsstatus
+       - GitHub: https://www.githubstatus.com
+       - LinkedIn: https://www.linkedin-status.com
+
+    **Rollback if needed:**
+    ```bash
+    gcloud run services update-traffic webroot-auth-api \
+      --to-revisions=PREVIOUS_REVISION=100
+    ```
+  mimeType: text/markdown
+conditions:
+  - displayName: "Error rate > 10%"
+    conditionThreshold:
+      filter: |
+        resource.type="cloud_run_revision"
+        AND resource.labels.service_name="webroot-auth-api"
+        AND metric.type="run.googleapis.com/request_count"
+      comparison: COMPARISON_GT
+      thresholdValue: 0.10
+      duration: 300s
+      aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_DELTA
+          groupByFields:
+            - metric.label.response_code_class
+      denominatorFilter: |
+        resource.type="cloud_run_revision"
+        AND resource.labels.service_name="webroot-auth-api"
+        AND metric.type="run.googleapis.com/request_count"
+      denominatorAggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_RATE
+
+---
+# Alert 4: Database Connection Failures
+displayName: "Auth System - Database Connection Failures"
+documentation:
+  content: |
+    ## Database Connection Failures
+
+    The auth system cannot connect to the PostgreSQL database.
+
+    **Immediate actions:**
+    1. Check database is running and accessible
+    2. Verify DATABASE_URL secret is correct
+    3. Check Cloud SQL instance status (if using Cloud SQL)
+    4. Review database connection pool settings
+
+    **Check database:**
+    ```bash
+    # If using Cloud SQL
+    gcloud sql instances describe YOUR_INSTANCE_NAME
+
+    # Check connectivity
+    gcloud sql connect YOUR_INSTANCE_NAME --user=YOUR_USER
+    ```
+  mimeType: text/markdown
+conditions:
+  - displayName: "Database connection errors"
+    conditionThreshold:
+      filter: |
+        resource.type="cloud_run_revision"
+        AND resource.labels.service_name="webroot-auth-api"
+        AND (
+          textPayload=~"ECONNREFUSED"
+          OR textPayload=~"Connection.*refused"
+          OR textPayload=~"database.*error"
+          OR textPayload=~"PostgreSQL.*error"
+        )
+      comparison: COMPARISON_GT
+      thresholdValue: 5
+      duration: 300s
+      aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_RATE
+
+---
+# Alert 5: High Response Latency
+displayName: "Auth System - High Response Latency"
+documentation:
+  content: |
+    ## High Response Latency Detected
+
+    Response times are slower than normal (>2 seconds). This could indicate:
+    - Database performance issues
+    - Increased load
+    - Network problems
+    - Inefficient queries
+
+    **Actions:**
+    1. Check Cloud Run metrics for CPU/memory usage
+    2. Review database query performance
+    3. Consider scaling up Cloud Run instances
+    4. Check for slow external API calls (OAuth providers)
+
+    **Scale up if needed:**
+    ```bash
+    gcloud run services update webroot-auth-api \
+      --max-instances=20 \
+      --concurrency=100
+    ```
+  mimeType: text/markdown
+conditions:
+  - displayName: "P95 latency > 2 seconds"
+    conditionThreshold:
+      filter: |
+        resource.type="cloud_run_revision"
+        AND resource.labels.service_name="webroot-auth-api"
+        AND metric.type="run.googleapis.com/request_latencies"
+      comparison: COMPARISON_GT
+      thresholdValue: 2000
+      duration: 300s
+      aggregations:
+        - alignmentPeriod: 60s
+          perSeriesAligner: ALIGN_DELTA
+          crossSeriesReducer: REDUCE_PERCENTILE_95
+
+---
+# Alert 6: Service Availability < 99%
+displayName: "Auth System - Low Availability"
+documentation:
+  content: |
+    ## Service Availability Below 99%
+
+    The auth system availability has dropped below acceptable levels.
+
+    **Actions:**
+    1. Check service status immediately
+    2. Review Cloud Run metrics for container crashes
+    3. Check recent deployments
+    4. Review error logs
+    5. Consider rollback if caused by recent deployment
+
+    **Emergency contacts:**
+    - On-call engineer: [Add contact]
+    - GCP support: https://cloud.google.com/support
+  mimeType: text/markdown
+conditions:
+  - displayName: "Availability < 99%"
+    conditionThreshold:
+      filter: |
+        resource.type="cloud_run_revision"
+        AND resource.labels.service_name="webroot-auth-api"
+        AND metric.type="run.googleapis.com/request_count"
+      comparison: COMPARISON_LT
+      thresholdValue: 0.99
+      duration: 300s
+
+---
+# Notification Channels
+# Configure where alerts should be sent
+
+notificationChannels:
+  - type: email
+    displayName: "Primary Email Alert"
+    description: "Email notifications for critical auth system alerts"
+    labels:
+      email_address: "YOUR-EMAIL@example.com"  # UPDATE THIS
+
+  - type: slack
+    displayName: "Slack #alerts Channel"
+    description: "Slack notifications for auth system monitoring"
+    # Setup: https://cloud.google.com/monitoring/support/notification-options#slack
+    labels:
+      channel_name: "#alerts"
+      url: "YOUR-SLACK-WEBHOOK-URL"  # UPDATE THIS
+
+---
+# Log-based Metrics
+# These extract metrics from logs for more detailed monitoring
+
+# Metric 1: Failed login attempts by provider
+- name: "auth_failed_logins_by_provider"
+  description: "Count of failed login attempts grouped by OAuth provider"
+  filter: |
+    resource.type="cloud_run_revision"
+    AND resource.labels.service_name="webroot-auth-api"
+    AND textPayload=~"authentication.*failed"
+  metricDescriptor:
+    metricKind: DELTA
+    valueType: INT64
+    labels:
+      - key: provider
+        valueType: STRING
+        description: "OAuth provider (google, github, linkedin, etc)"
+  labelExtractors:
+    provider: EXTRACT(textPayload)
+
+# Metric 2: Blocked CORS requests
+- name: "auth_cors_blocked"
+  description: "Count of requests blocked by CORS policy"
+  filter: |
+    resource.type="cloud_run_revision"
+    AND resource.labels.service_name="webroot-auth-api"
+    AND textPayload=~"Blocked CORS request"
+  metricDescriptor:
+    metricKind: DELTA
+    valueType: INT64
+    labels:
+      - key: origin
+        valueType: STRING
+        description: "Origin that was blocked"
+  labelExtractors:
+    origin: REGEXP_EXTRACT(textPayload, "from: (.+)")
+
+# Metric 3: Rate limit hits
+- name: "auth_rate_limit_hits"
+  description: "Count of requests blocked by rate limiting"
+  filter: |
+    resource.type="cloud_run_revision"
+    AND resource.labels.service_name="webroot-auth-api"
+    AND httpRequest.status=429
+  metricDescriptor:
+    metricKind: DELTA
+    valueType: INT64
