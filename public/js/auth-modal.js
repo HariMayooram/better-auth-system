@@ -377,8 +377,11 @@ class AuthModal {
             // Redirect back to the current page after OAuth completes
             const callbackURL = window.location.href;
 
-            // Use configured API URL or fall back to localhost
-           const apiBase = window.AUTH_API_URL || 'http://localhost:3002/api';
+            // Use configured API URL or fall back based on environment
+           const apiBase = window.AUTH_API_URL ||
+             (['localhost', '127.0.0.1', '::1'].includes(location.hostname)
+               ? 'http://localhost:3002/api'
+               : 'https://api.model.earth/api');
            
             // Better Auth OAuth flow - POST to get OAuth URL
             const response = await fetch(`${apiBase}/auth/sign-in/social`, {
@@ -417,8 +420,11 @@ class AuthModal {
 // Check if user is authenticated and update UI
 async function checkAuthSession() {
     try {
-        // Use configured API URL or fall back to localhost
-        const apiBase = window.AUTH_API_URL || 'http://localhost:3002/api';
+        // Use configured API URL or fall back based on environment
+        const apiBase = window.AUTH_API_URL ||
+          (['localhost', '127.0.0.1', '::1'].includes(location.hostname)
+            ? 'http://localhost:3002/api'
+            : 'https://api.model.earth/api');
 
         const response = await fetch(`${apiBase}/auth/get-session`, {
             credentials: 'include' // Send httpOnly cookie
