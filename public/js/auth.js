@@ -183,26 +183,22 @@ class AuthManager {
                 return;
             }
 
-            // Get OAuth URL from backend
-            const response = await fetch(`${this.API_BASE}/auth/${provider}/url`, {
-                credentials: 'include'
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.message || `${provider} OAuth not configured`);
-            }
-
-            const result = await response.json();
-
             // Store the provider for callback handling
             sessionStorage.setItem('oauth_provider', provider);
 
             // Store current page URL for return after auth
             sessionStorage.setItem('auth_return_url', window.location.pathname + window.location.search + window.location.hash);
 
-            // Redirect to OAuth provider (required for OAuth flow)
-            window.location.href = result.auth_url;
+            // Remove /api suffix to get the base URL for redirect endpoint
+            const authBaseUrl = this.API_BASE.replace(/\/api\/?$/, '');
+
+            // Redirect back to the current page after OAuth completes
+            const redirectUrl = encodeURIComponent(window.location.href);
+
+            // Use direct navigation instead of fetch to avoid third-party cookie issues
+            // This keeps everything in first-party context
+            console.log(`[Auth] Navigating to ${provider} OAuth via redirect endpoint...`);
+            window.location.href = `${authBaseUrl}/oauth/${provider}?redirect=${redirectUrl}`;
 
         } catch (error) {
             console.error('Auth error:', error);

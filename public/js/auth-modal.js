@@ -373,43 +373,22 @@ class AuthModal {
 
         this.hide();
 
-        try {
-            // Redirect back to the current page after OAuth completes
-            const callbackURL = window.location.href;
+        // Get the API base URL (without /api suffix for the redirect endpoint)
+        const apiBase = window.AUTH_API_URL ||
+            (['localhost', '127.0.0.1', '::1'].includes(location.hostname)
+                ? 'http://localhost:3002/api'
+                : 'https://api.model.earth/api');
 
-            // Use configured API URL or fall back to localhost
-           const apiBase = window.AUTH_API_URL || 'http://localhost:3002/api';
-           
-            // Better Auth OAuth flow - POST to get OAuth URL
-            const response = await fetch(`${apiBase}/auth/sign-in/social`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                credentials: 'include',
-                body: JSON.stringify({
-                    provider: provider,
-                    callbackURL: callbackURL
-                })
-            });
+        // Remove /api suffix to get the base URL
+        const authBaseUrl = apiBase.replace(/\/api\/?$/, '');
 
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
+        // Redirect back to the current page after OAuth completes
+        const redirectUrl = encodeURIComponent(window.location.href);
 
-            const data = await response.json();
-
-            if (data.url) {
-                console.log(`[Auth Modal] Redirecting to ${provider} OAuth...`);
-                window.location.href = data.url;
-            } else {
-                throw new Error('No OAuth URL received from server');
-            }
-
-        } catch (error) {
-            console.error('OAuth error:', error);
-            alert(`Failed to start ${provider} authentication: ${error.message}`);
-        }
+        // Use direct navigation instead of fetch to avoid third-party cookie issues
+        // This keeps everything in first-party context
+        console.log(`[Auth Modal] Navigating to ${provider} OAuth via redirect endpoint...`);
+        window.location.href = `${authBaseUrl}/oauth/${provider}?redirect=${redirectUrl}`;
     }
 
 }
@@ -417,8 +396,11 @@ class AuthModal {
 // Check if user is authenticated and update UI
 async function checkAuthSession() {
     try {
-        // Use configured API URL or fall back to localhost
-        const apiBase = window.AUTH_API_URL || 'http://localhost:3002/api';
+        // Use configured API URL or fall back based on environment
+        const apiBase = window.AUTH_API_URL ||
+          (['localhost', '127.0.0.1', '::1'].includes(location.hostname)
+            ? 'http://localhost:3002/api'
+            : 'https://api.model.earth/api');
 
         const response = await fetch(`${apiBase}/auth/get-session`, {
             credentials: 'include' // Send httpOnly cookie
