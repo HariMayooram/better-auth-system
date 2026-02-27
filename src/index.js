@@ -29,11 +29,13 @@ const allowedOrigins = (() => {
     : ["http://localhost:8887", "http://localhost:8888"];
 })();
 
-// HTTPS enforcement in production
+// HTTPS enforcement in production (skip for internal localhost self-requests)
 app.use((req, res, next) => {
   if (process.env.NODE_ENV === 'production') {
-    if (!req.secure && req.get('x-forwarded-proto') !== 'https') {
-      return res.redirect('https://' + req.get('host') + req.url);
+    const host = req.get('host') || '';
+    const isInternal = host.startsWith('localhost') || host.startsWith('127.0.0.1');
+    if (!isInternal && !req.secure && req.get('x-forwarded-proto') !== 'https') {
+      return res.redirect('https://' + host + req.url);
     }
   }
   next();
