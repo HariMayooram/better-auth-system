@@ -98,13 +98,18 @@ app.use(
   })
 );
 
-// Parse JSON bodies
+// Auth routes - BEFORE body parsers so Better Auth can read the raw request body.
+// express.json() would consume the body stream before Better Auth can parse it.
+// app.all preserves the full path (no prefix stripping) for Better Auth's route matching.
+app.all("/api/auth/*", toNodeHandler(auth));
+
+// Parse JSON bodies for all other routes
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // Direct OAuth redirect endpoint - bypasses third-party cookie issues
-// Usage: Navigate (not fetch) to /oauth/:provider?redirect=https://your-site.com
-app.get("/oauth/:provider", async (req, res) => {
+// Usage: Navigate (not fetch) to /api/oauth/:provider?redirect=https://your-site.com
+app.get("/api/oauth/:provider", async (req, res) => {
   const { provider } = req.params;
   const redirectUrl = req.query.redirect;
 
@@ -130,52 +135,48 @@ app.get("/oauth/:provider", async (req, res) => {
 
   // Forward to Better Auth's sign-in endpoint using internal request
   // This sets cookies in first-party context (user navigated directly here)
-  const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
+  // Use localhost for internal self-fetch to avoid external DNS dependency
+  const internalUrl = `http://localhost:${PORT}`;
 
   try {
-    // Create the OAuth request to Better Auth
-    const response = await fetch(`${baseUrl}/api/auth/sign-in/social`, {
+    // Use disableRedirect: true so Better Auth returns JSON { url } instead of
+    // issuing a 302. Node.js fetch with redirect:'manual' returns an opaque
+    // response (status 0, no headers), so we can't read the Location header.
+    const response = await fetch(`${internalUrl}/api/auth/sign-in/social`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Cookie': req.headers.cookie || '',
+        // Better Auth requires Origin header for CSRF protection on POST endpoints.
+        // redirectUrl is already validated against allowedOrigins above, so its
+        // origin is trusted.
+        'Origin': new URL(redirectUrl).origin,
       },
       body: JSON.stringify({
         provider: provider,
-        callbackURL: redirectUrl
+        callbackURL: redirectUrl,
+        disableRedirect: true,
       })
     });
 
-    // Get the Set-Cookie headers from Better Auth response
-    const setCookieHeaders = response.headers.getSetCookie ?
-      response.headers.getSetCookie() :
-      response.headers.get('set-cookie');
-
-    if (setCookieHeaders) {
-      // Forward cookies to the client
-      if (Array.isArray(setCookieHeaders)) {
-        setCookieHeaders.forEach(cookie => res.append('Set-Cookie', cookie));
-      } else if (setCookieHeaders) {
-        res.append('Set-Cookie', setCookieHeaders);
-      }
-    }
+    // Forward Set-Cookie headers (OAuth state cookie) from Better Auth to the browser
+    const setCookieHeaders = response.headers.getSetCookie
+      ? response.headers.getSetCookie()
+      : [response.headers.get('set-cookie')].filter(Boolean);
+    setCookieHeaders.forEach(cookie => cookie && res.append('Set-Cookie', cookie));
 
     const data = await response.json();
-
     if (data.url) {
-      // Redirect to OAuth provider
       return res.redirect(data.url);
-    } else {
-      return res.status(500).json({ error: 'Failed to get OAuth URL' });
     }
+
+    console.error('OAuth: unexpected Better Auth response', response.status, data);
+    return res.status(500).json({ error: 'Failed to get OAuth URL' });
   } catch (error) {
     console.error('OAuth redirect error:', error);
     return res.status(500).json({ error: 'OAuth initialization failed' });
   }
 });
-
-// Auth routes - MUST be after CORS and body parsing
-app.use("/api", toNodeHandler(auth));
 
 // Error handling middleware
 app.use((err, req, res, next) => {

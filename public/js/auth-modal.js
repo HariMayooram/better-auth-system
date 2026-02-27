@@ -373,14 +373,15 @@ class AuthModal {
 
         this.hide();
 
-        // Get the API base URL (without /api suffix for the redirect endpoint)
+        // Get the API base URL
         const apiBase = window.AUTH_API_URL ||
             (['localhost', '127.0.0.1', '::1'].includes(location.hostname)
                 ? 'http://localhost:3002/api'
                 : 'https://api.model.earth/api');
 
-        // Remove /api suffix to get the base URL
-        const authBaseUrl = apiBase.replace(/\/api\/?$/, '');
+        // Previously stripped /api suffix — kept for reference:
+        // const authBaseUrl = apiBase.replace(/\/api\/?$/, '');
+        // window.location.href = `${authBaseUrl}/oauth/${provider}?redirect=${redirectUrl}`;
 
         // Redirect back to the current page after OAuth completes
         const redirectUrl = encodeURIComponent(window.location.href);
@@ -388,7 +389,7 @@ class AuthModal {
         // Use direct navigation instead of fetch to avoid third-party cookie issues
         // This keeps everything in first-party context
         console.log(`[Auth Modal] Navigating to ${provider} OAuth via redirect endpoint...`);
-        window.location.href = `${authBaseUrl}/oauth/${provider}?redirect=${redirectUrl}`;
+        window.location.href = `${apiBase}/oauth/${provider}?redirect=${redirectUrl}`;
     }
 
 }
