@@ -1,102 +1,69 @@
-name: Deploy Auth System to Cloud Run
+  name: Deploy Auth System to Cloud Run                                                                                                                          
+                                                                                                                                                                 
+  on:                                                                                                                                                            
+    push:                                                                                                                                                        
+      branches: ["main"]                                                                                                                                         
+    workflow_dispatch:                                                                                                                                           
+                                                                                                                                                                 
+  env:            
+    PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+    SERVICE_NAME: webroot-auth-api
+    REGION: us-central1
 
-on:
-  push:
-    branches: ["main"]
-    paths:
-      - 'better-auth-system'
-      - 'better-auth-system/**'
-      - '.github/workflows/deploy-auth-cloudrun.yml'
-  workflow_dispatch:
+  jobs:
+    deploy:
+      runs-on: ubuntu-latest
+      permissions:
+        contents: read
+        id-token: write
 
-env:
-  PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-  SERVICE_NAME: webroot-auth-api
-  REGION: us-central1
+      steps:
+        - name: Checkout
+          uses: actions/checkout@v4
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      id-token: write
+        - name: Authenticate to Google Cloud
+          uses: google-github-actions/auth@v2
+          with:
+            credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          submodules: recursive
+        - name: Set up Cloud SDK
+          uses: google-github-actions/setup-gcloud@v2
 
-      - name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v2
-        with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+        - name: Configure Docker for Artifact Registry
+          run: |
+            gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
 
-      - name: Set up Cloud SDK
-        uses: google-github-actions/setup-gcloud@v2
+        - name: Build and Push Container
+          run: |
+            docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/webroot/better-auth-system:${{ github.sha }} \
+                         -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/webroot/better-auth-system:latest .
+            docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/webroot/better-auth-system:${{ github.sha }}
+            docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/webroot/better-auth-system:latest
 
-      - name: Configure Docker for Artifact Registry
-        run: |
-          gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev
+        - name: Deploy to Cloud Run
+          run: |
+            gcloud run deploy ${{ env.SERVICE_NAME }} \
+              --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/webroot/better-auth-system:${{ github.sha }} \
+              --platform=managed \
+              --region=${{ env.REGION }} \
+              --allow-unauthenticated \
+              --port=8080 \
+              --set-env-vars="^++^NODE_ENV=production++BASE_URL=https://api.model.earth" \
+              --set-secrets="AUTH_CONFIG=AUTH_CONFIG:latest" \
+              --min-instances=0 \
+              --max-instances=3 \
+              --memory=512Mi \
+              --cpu=1 \
+              --timeout=300
 
-      - name: Build and Push Container
-        working-directory: ./better-auth-system
-        run: |
-          docker build -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/webroot/better-auth-system:${{ github.sha }} \
-                       -t ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/webroot/better-auth-system:latest .
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/webroot/better-auth-system:${{ github.sha }}
-          docker push ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/webroot/better-auth-system:latest
+        - name: Get Service URL
+          id: service-url
+          run: |
+            URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} --region=${{ env.REGION }} --format='value(status.url)')
+            echo "Service deployed to: $URL"
+            echo "url=$URL" >> $GITHUB_OUTPUT
 
-      - name: Deploy to Cloud Run
-        run: |
-          # Deploy once to get the stable URL
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/webroot/better-auth-system:${{ github.sha }} \
-            --platform=managed \
-            --region=${{ env.REGION }} \
-            --allow-unauthenticated \
-            --port=8080 \
-            --min-instances=0 \
-            --max-instances=3 \
-            --memory=512Mi \
-            --cpu=1 \
-            --timeout=300
-
-          # Get the service URL
-          SERVICE_URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} \
-            --region=${{ env.REGION }} \
-            --format='value(status.url)')
-
-          if [ -z "$SERVICE_URL" ]; then
-            echo "Service URL could not be retrieved. Exiting."
-            exit 1
-          fi
-
-          # Redeploy with the HARDCODED correct URL
-          gcloud run deploy ${{ env.SERVICE_NAME }} \
-            --image=${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/webroot/better-auth-system:${{ github.sha }} \
-            --platform=managed \
-            --region=${{ env.REGION }} \
-            --allow-unauthenticated \
-            --port=8080 \
-            --set-env-vars="^++^NODE_ENV=production++BASE_URL=https://api.model.earth" \
-            --set-secrets="AUTH_CONFIG=AUTH_CONFIG:latest" \
-            --min-instances=0 \
-            --max-instances=3 \
-            --memory=512Mi \
-            --cpu=1 \
-            --timeout=300
-
-      - name: Get Service URL
-        id: service-url
-        run: |
-          URL=$(gcloud run services describe ${{ env.SERVICE_NAME }} --region=${{ env.REGION }} --format='value(status.url)')
-          echo "Service deployed to: $URL"
-          echo "url=$URL" >> $GITHUB_OUTPUT
-
-      - name: Update Deployment Status
-        run: |
-          echo "✅ Auth System deployed successfully!"
-          echo "🌐 Service URL: ${{ steps.service-url.outputs.url }}"
-          echo "📝 Update AUTH_API_URL in your repository settings to use this URL"
-          echo "🔐 IMPORTANT: Ensure the ALLOWED_ORIGINS_SECRET secret in Google Secret Manager is set to the URL of your frontend application."
+        - name: Update Deployment Status
+          run: |
+            echo "✅ Auth System deployed successfully!"
+            echo "🌐 Service URL: ${{ steps.service-url.outputs.url }}"
