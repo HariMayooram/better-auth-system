@@ -16,10 +16,18 @@ const HOST = process.env.HOST || "0.0.0.0";
 // Trust proxy for Cloud Run (required for proper IP detection and rate limiting)
 app.set('trust proxy', true);
 
-// Parse allowed origins from environment
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",").map(origin => origin.trim())
-  : ["http://localhost:8887", "http://localhost:8888"];
+// Parse allowed origins from AUTH_CONFIG JSON or individual env var
+const allowedOrigins = (() => {
+  if (process.env.AUTH_CONFIG) {
+    try {
+      const cfg = JSON.parse(process.env.AUTH_CONFIG);
+      if (cfg.allowedOrigins) return cfg.allowedOrigins;
+    } catch (e) { /* handled in auth.js */ }
+  }
+  return process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(",").map(origin => origin.trim())
+    : ["http://localhost:8887", "http://localhost:8888"];
+})();
 
 // HTTPS enforcement in production
 app.use((req, res, next) => {
