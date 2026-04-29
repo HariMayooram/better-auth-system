@@ -152,7 +152,11 @@
     var signInBtn = document.getElementById('auth-plugin-signIn');
     if (signInBtn) {
       signInBtn.addEventListener('click', function () {
-        showAuthModal();
+        if (typeof goHash === 'function') {
+          goHash({'popup': 'login'});
+        } else {
+          showAuthModal();
+        }
       });
     }
 
@@ -351,6 +355,15 @@
   window.showAuthModal = showAuthModal;
   window.updateAuthUI = updateAuthUI;
   window.handleSignOut = handleSignOut;
+
+  // ── Hash-based popup trigger ─────────────────────────────────────
+
+  document.addEventListener('hashChangeEvent', function () {
+    var hash = typeof getHash === 'function' ? getHash() : {};
+    if (hash.popup === 'login') {
+      showAuthModal();
+    }
+  });
 
   // ── Start ────────────────────────────────────────────────────────
 

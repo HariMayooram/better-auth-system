@@ -1,5 +1,7 @@
 # Better Auth - Quick Start Guide
 
+View [Login Popup](#popup=login) or launch under the [Account Side Tab](#sidetab=account).
+
 ## 🚀 Get Started in 3 Minutes
 
 ### Step 1: Configure Environment

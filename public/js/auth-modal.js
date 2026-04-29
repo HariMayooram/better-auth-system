@@ -356,6 +356,9 @@ class AuthModal {
         if (this.modal) {
             this.modal.classList.remove('show');
         }
+        if (typeof goHash === 'function') {
+            goHash({'popup': ''});
+        }
     }
 
     isVisible() {
