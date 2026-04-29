@@ -2,12 +2,18 @@ import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
 import rateLimit from "express-rate-limit";
+import { fileURLToPath } from "url";
+import { dirname, resolve } from "path";
 
 import { toNodeHandler } from "better-auth/node";
 import { auth } from "./auth.js";
 
-// Load environment variables
-dotenv.config();
+// Load environment variables — try local .env first, fall back to webroot docker/.env
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const local = dotenv.config({ path: resolve(__dirname, "../.env") });
+if (local.error) {
+    dotenv.config({ path: resolve(__dirname, "../../docker/.env") });
+}
 
 const app = express();
 const PORT = process.env.PORT || 3002;
